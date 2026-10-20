@@ -2,8 +2,9 @@ import asyncio
 from pyrogram import Client
 from database import get_groups, get_active_users
 
-API_ID = 6
-API_HASH = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
+# --- BU YERGA O'ZINGizning my.telegram.org dan olgan kalitlaringizni yozasiz ---
+API_ID = 39992061  # Masalan: 2847592 (faqat raqam)
+API_HASH = "22cb23045de6fe3c351d10305b7438f3"  # Masalan: "a1b2c3d4e5f6g7h8..." (qo'shtirnoq ichida)
 
 temp_clients = {}
 
@@ -31,19 +32,19 @@ async def sign_in_with_code(user_id: int, code: str, password: str = None):
     phone_code_hash = data["phone_code_hash"]
     
     try:
-        await client.sign_in(phone_number=phone, phone_code_hash=phone_code_hash, phone_code=code)
+        if code:
+            await client.sign_in(phone_number=phone, phone_code_hash=phone_code_hash, phone_code=code)
+        elif password:
+            await client.check_password(password)
     except Exception as e:
-        if "SessionPasswordNeeded" in str(e) and password:
-            try:
-                await client.check_password(password)
-            except Exception as ex:
-                return False, f"2-bosqichli parol xato: {ex}"
-        else:
-            return False, f"Xatolik: {e}"
+        if "SessionPasswordNeeded" in str(e):
+            return False, "SessionPasswordNeeded"
+        return False, str(e)
             
     session_string = await client.export_session_string()
     await client.disconnect()
-    del temp_clients[user_id]
+    if user_id in temp_clients:
+        del temp_clients[user_id]
     return True, session_string
 
 async def send_user_messages(user_id: int, session_str: str, message: str):
