@@ -90,48 +90,4 @@ async def delete_account(acc_id: int):
         await db.execute("DELETE FROM accounts WHERE id = ?", (acc_id,))
         await db.commit()
 
-async def add_group(user_id: int, chat_id: str):
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("INSERT INTO groups (user_id, chat_id) VALUES (?, ?)", (user_id, chat_id))
-        await db.commit()
-
-async def delete_group(group_id: int):
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("DELETE FROM groups WHERE id = ?", (group_id,))
-        await db.commit()
-
-async def get_groups(user_id: int):
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT id, chat_id FROM groups WHERE user_id = ?", (user_id,)) as cursor:
-            return await cursor.fetchall()
-
-async def save_custom_bot(owner_id: int, token: str):
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("INSERT INTO custom_bots (owner_id, bot_token) VALUES (?, ?)", (owner_id, token))
-        await db.commit()
-
-async def get_active_accounts():
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT user_id, session_string, message_text, interval_minutes FROM accounts WHERE is_active = 1") as cursor:
-            return await cursor.fetchall()
-
-async def get_stats():
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT COUNT(*) FROM users") as c1:
-            total_users = (await c1.fetchone())[0]
-        async with db.execute("SELECT COUNT(*) FROM accounts WHERE is_active = 1") as c2:
-            active_accs = (await c2.fetchone())[0]
-        async with db.execute("SELECT COUNT(*) FROM groups") as c3:
-            total_groups = (await c3.fetchone())[0]
-        return total_users, active_accs, total_groups
-
-async def get_referral_count(user_id: int):
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT COUNT(*) FROM users WHERE referred_by = ?", (user_id,)) as cursor:
-            return (await cursor.fetchone())[0]
-
-async def activate_pro(user_id: int):
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE users SET is_pro = 1 WHERE user_id = ?", (user_id,))
-        await db.commit()
-        
+async def add_
