@@ -2,8 +2,7 @@ import asyncio
 from pyrogram import Client
 from database import get_groups, get_active_users
 
-# Telegram'dan olingan universal API ma'lumotlari (bularni o'zgartirmasdan qoldirishingiz mumkin)
-API_ID = 6 // masalan o'zingizniki yoki my.telegram.org dan olingan bitta umumiy api_id
+API_ID = 6
 API_HASH = "eb06d4abfb49dc3eeb1aeb98ae0f581e"
 
 temp_clients = {}
@@ -71,3 +70,4 @@ async def run_auto_sender():
         user_id, session_string, message_text, _ = user
         if session_string and message_text:
             await send_user_messages(user_id, session_string, message_text)
+            
