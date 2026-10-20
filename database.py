@@ -7,6 +7,7 @@ async def init_db():
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
+                phone_number TEXT,
                 session_string TEXT,
                 message_text TEXT,
                 interval_minutes INTEGER DEFAULT 10,
@@ -27,12 +28,12 @@ async def get_user(user_id: int):
         async with db.execute("SELECT session_string, message_text, interval_minutes, is_active FROM users WHERE user_id = ?", (user_id,)) as cursor:
             return await cursor.fetchone()
 
-async def set_session(user_id: int, session_string: str):
+async def set_session(user_id: int, session_string: str, phone: str = ""):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("""
-            INSERT INTO users (user_id, session_string) VALUES (?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET session_string = EXCLUDED.session_string
-        """, (user_id, session_string))
+            INSERT INTO users (user_id, session_string, phone_number) VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET session_string = EXCLUDED.session_string, phone_number = EXCLUDED.phone_number
+        """, (user_id, session_string, phone))
         await db.commit()
 
 async def set_message(user_id: int, text: str):
@@ -71,4 +72,4 @@ async def get_active_users():
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT user_id, session_string, message_text, interval_minutes FROM users WHERE is_active = 1") as cursor:
             return await cursor.fetchall()
-          
+            
