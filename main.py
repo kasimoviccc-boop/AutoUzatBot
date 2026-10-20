@@ -13,7 +13,7 @@ from aiohttp import web
 import database as db
 from userbot import send_code_to_phone, sign_in_with_code, run_auto_sender
 
-BOT_TOKEN = os.getenv("8668882524:AAGBJs4SaoRCU0dhcaiOQxiOy8DRdOrnMy0", "7536173142")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "SIZNING_BOT_TOKENINGIZ")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -264,15 +264,15 @@ async def profile_cmd(message: types.Message):
     if user:
         _, _, interval, active, phone, is_pro, balance = user
         status = "Faol 🟢" if active == 1 else "To'xtatilgan 🔴"
-        pro_status = "Pro ⭐️" oddiy = "Oddiy 👤"
         phone_txt = phone if phone else "Bog'lanmagan ❌"
+        daraja = "Pro ⭐️" if is_pro == 1 else "Oddiy 👤"
         
         await message.answer(
             f"👤 **Sizning profilingiz:**\n\n"
             f"📞 Telefon: `{phone_txt}`\n"
             f"⚡️ Holati: {status}\n"
             f"⏱ Interval: {interval} daqiqa\n"
-            f"⭐️ Daraja: {('Pro ⭐️' if is_pro == 1 else 'Oddiy 👤')}\n"
+            f"⭐️ Daraja: {daraja}\n"
             f"💰 Balans: {balance} so'm",
             parse_mode="Markdown"
         )
@@ -301,4 +301,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-  
+    
