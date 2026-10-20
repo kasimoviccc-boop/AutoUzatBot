@@ -19,7 +19,6 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 scheduler = AsyncIOScheduler()
 
-# Render bepul server talabi uchun veb-server
 async def handle(request):
     return web.Response(text="Avto Xabar Bot ishlamoqda!")
 
@@ -40,6 +39,7 @@ class AuthState(StatesGroup):
     waiting_for_message = State()
     waiting_for_group = State()
     waiting_for_custom_interval = State()
+    waiting_for_bot_token = State()
 
 def main_menu():
     return ReplyKeyboardMarkup(
@@ -67,63 +67,59 @@ async def start_cmd(message: types.Message, command: CommandObject):
         parse_mode="Markdown"
     )
 
-# --- ⏱ INTERVAL ---
-@dp.message(F.text == "⏱ Interval")
-async def interval_menu(message: types.Message):
-    user = await db.get_user(message.from_user.id)
-    current_int = user[2] if user and user[2] else 10
-
-    builder = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="2 daqiqa", callback_data="set_int_2"), InlineKeyboardButton(text="5 daqiqa", callback_data="set_int_5")],
-        [InlineKeyboardButton(text="7 daqiqa", callback_data="set_int_7"), InlineKeyboardButton(text="10 daqiqa", callback_data="set_int_10")],
-        [InlineKeyboardButton(text="15 daqiqa", callback_data="set_int_15"), InlineKeyboardButton(text="20 daqiqa", callback_data="set_int_20")],
-        [InlineKeyboardButton(text="25 daqiqa", callback_data="set_int_25"), InlineKeyboardButton(text="30 daqiqa", callback_data="set_int_30")],
-        [InlineKeyboardButton(text="1 soat", callback_data="set_int_60"), InlineKeyboardButton(text="6 soat", callback_data="set_int_360")],
-        [InlineKeyboardButton(text="⌨️ Qo'lda kiritish", callback_data="set_int_custom")]
-    ])
-    await message.answer(
-        f"⏱ **Interval sozlamasi**\n\n📌 Hozirgi interval: **{current_int} daqiqa**\n\nQuyidan tanlang:",
-        reply_markup=builder,
-        parse_mode="Markdown"
-    )
-
-@dp.callback_query(F.data.startswith("set_int_"))
-async def process_interval(callback: types.CallbackQuery, state: FSMContext):
-    action = callback.data.split("_")[2]
-    if action == "custom":
-        await callback.message.answer("Daqiqalar sonini son ko'rinishida yuboring (masalan: 45):")
-        await state.set_state(AuthState.waiting_for_custom_interval)
-    else:
-        minutes = int(action)
-        await db.set_interval(callback.from_user.id, minutes)
-        await callback.answer(f"Interval {minutes} daqiqaga o'zgartirildi!", show_alert=True)
-        await interval_menu(callback.message)
-
-@dp.message(AuthState.waiting_for_custom_interval)
-async def custom_interval_set(message: types.Message, state: FSMContext):
-    if message.text.isdigit():
-        minutes = int(message.text)
-        await db.set_interval(message.from_user.id, minutes)
-        await message.answer(f"✅ Interval {minutes} daqiqaga o'rnatildi!", reply_markup=main_menu())
-        await state.clear()
-    else:
-        await message.answer("❌ Faqat raqam kiriting:")
-
-# --- 👥 PROFILLAR (SMS KOD BILAN ULANISH) ---
+# --- 👥 PROFILLAR (KO'P AKKAUNT ULASH VA O'CHIRISH) ---
 @dp.message(F.text == "👥 Profillar")
-async def profiles_cmd(message: types.Message, state: FSMContext):
+async def profiles_cmd(message: types.Message):
+    accounts = await db.get_accounts(message.from_user.id)
+    
+    builder = InlineKeyboardMarkup(inline_keyboard=[])
+    text = "👥 **Sizning ulangan profillaringiz:**\n\n"
+    
+    if accounts:
+        for acc in accounts:
+            acc_id, phone, is_active, interval, msg = acc
+            status = "🟢 Faol" if is_active == 1 else "🔴 To'xtatilgan"
+            text += f"📱 `{phone}` | Holati: {status}\n"
+            builder.inline_keyboard.append([
+                InlineKeyboardButton(text=f"❌ O'chirish ({phone})", callback_data=f"del_acc_{acc_id}"),
+                InlineKeyboardButton(text="⏯ On/Off", callback_data=f"toggle_acc_{acc_id}_{is_active}")
+            ])
+    else:
+        text += "Hozircha hech qanday profil ulanmagan.\n"
+
+    builder.inline_keyboard.append([InlineKeyboardButton(text="➕ Yangi profil qo'shish", callback_data="add_new_profile")])
+    await message.answer(text, reply_markup=builder, parse_mode="Markdown")
+
+@dp.callback_query(F.data == "add_new_profile")
+async def add_profile_start(callback: types.CallbackQuery, state: FSMContext):
     builder = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="📞 Telefon raqamni yuborish", request_contact=True)]],
         resize_keyboard=True,
         one_time_keyboard=True
     )
-    await message.answer(
-        "📱 Telegram akkauntingizni ulash uchun pastdagi tugmani bosing yoki raqamingizni yuboring (masalan: `+998901234567`):",
+    await callback.message.answer(
+        "📱 Telegram akkauntingizni ulash uchun raqamingizni yuboring (masalan: `+998901234567`):",
         reply_markup=builder,
         parse_mode="Markdown"
     )
     await state.set_state(AuthState.waiting_for_phone)
 
+@dp.callback_query(F.data.startswith("del_acc_"))
+async def del_account_proc(callback: types.CallbackQuery):
+    acc_id = int(callback.data.split("_")[2])
+    await db.delete_account(acc_id)
+    await callback.answer("Profil o'chirildi!", show_alert=True)
+    await profiles_cmd(callback.message)
+
+@dp.callback_query(F.data.startswith("toggle_acc_"))
+async def toggle_account_proc(callback: types.CallbackQuery):
+    _, _, acc_id, curr_status = callback.data.split("_")
+    new_status = 0 if int(curr_status) == 1 else 1
+    await db.update_account_status(int(acc_id), new_status)
+    await callback.answer("Holat o'zgartirildi!", show_alert=True)
+    await profiles_cmd(callback.message)
+
+# --- TELEGRAM AKKAUNT SMS/2FA BILAN ULANISH ---
 @dp.message(AuthState.waiting_for_phone, F.contact)
 @dp.message(AuthState.waiting_for_phone, F.text)
 async def get_phone(message: types.Message, state: FSMContext):
@@ -148,11 +144,11 @@ async def get_code(message: types.Message, state: FSMContext):
     if success:
         session_string = result
         data = await state.get_data()
-        await db.set_session(user_id, session_string, data.get("phone", ""))
-        await message.answer("✅ Akkaunt muvaffaqiyatli bog'landi va saqlandi!", reply_markup=main_menu())
+        await db.add_account(user_id, data.get("phone", ""), session_string)
+        await message.answer("✅ Akkaunt muvaffaqiyatli bog'landi!", reply_markup=main_menu())
         await state.clear()
     else:
-        if "SessionPasswordNeeded" in result:
+        if result == "SessionPasswordNeeded":
             await message.answer("🔐 Ikki bosqichli parol yoqilgan ekan. Parolingizni kiriting:")
             await state.set_state(AuthState.waiting_for_password)
         else:
@@ -167,11 +163,45 @@ async def get_password(message: types.Message, state: FSMContext):
     if success:
         session_string = result
         data = await state.get_data()
-        await db.set_session(user_id, session_string, data.get("phone", ""))
+        await db.add_account(user_id, data.get("phone", ""), session_string)
         await message.answer("✅ Parol tasdiqlandi, akkaunt ulandi!", reply_markup=main_menu())
         await state.clear()
     else:
         await message.answer(f"❌ Parol xato: {result}\nQaytadan kiriting:")
+
+# --- ⏱ INTERVAL ---
+@dp.message(F.text == "⏱ Interval")
+async def interval_menu(message: types.Message):
+    builder = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="2 daqiqa", callback_data="set_int_2"), InlineKeyboardButton(text="5 daqiqa", callback_data="set_int_5")],
+        [InlineKeyboardButton(text="7 daqiqa", callback_data="set_int_7"), InlineKeyboardButton(text="10 daqiqa", callback_data="set_int_10")],
+        [InlineKeyboardButton(text="15 daqiqa", callback_data="set_int_15"), InlineKeyboardButton(text="20 daqiqa", callback_data="set_int_20")],
+        [InlineKeyboardButton(text="25 daqiqa", callback_data="set_int_25"), InlineKeyboardButton(text="30 daqiqa", callback_data="set_int_30")],
+        [InlineKeyboardButton(text="1 soat", callback_data="set_int_60"), InlineKeyboardButton(text="6 soat", callback_data="set_int_360")],
+        [InlineKeyboardButton(text="⌨️ Qo'lda kiritish", callback_data="set_int_custom")]
+    ])
+    await message.answer("⏱ **Interval sozlamasi**\n\nQuyidan tarqatish oralig'ini tanlang:", reply_markup=builder, parse_mode="Markdown")
+
+@dp.callback_query(F.data.startswith("set_int_"))
+async def process_interval(callback: types.CallbackQuery, state: FSMContext):
+    action = callback.data.split("_")[2]
+    if action == "custom":
+        await callback.message.answer("Daqiqalar sonini kiriting:")
+        await state.set_state(AuthState.waiting_for_custom_interval)
+    else:
+        minutes = int(action)
+        await db.update_account_interval(callback.from_user.id, minutes)
+        await callback.answer(f"Interval {minutes} daqiqaga o'zgartirildi!", show_alert=True)
+
+@dp.message(AuthState.waiting_for_custom_interval)
+async def custom_interval_set(message: types.Message, state: FSMContext):
+    if message.text.isdigit():
+        minutes = int(message.text)
+        await db.update_account_interval(message.from_user.id, minutes)
+        await message.answer(f"✅ Interval {minutes} daqiqaga o'rnatildi!", reply_markup=main_menu())
+        await state.clear()
+    else:
+        await message.answer("❌ Faqat raqam kiriting:")
 
 # --- 💬 XABAR ---
 @dp.message(F.text == "💬 Xabar")
@@ -181,34 +211,57 @@ async def message_cmd(message: types.Message, state: FSMContext):
 
 @dp.message(AuthState.waiting_for_message)
 async def save_message(message: types.Message, state: FSMContext):
-    await db.set_message(message.from_user.id, message.text)
-    await message.answer("✅ Xabar matni saqlandi!", reply_markup=main_menu())
+    await db.update_account_message(message.from_user.id, message.text)
+    await message.answer("✅ Xabar matni barcha faol profillaringizga saqlandi!", reply_markup=main_menu())
     await state.clear()
 
 # --- 📁 GURUHLAR ---
 @dp.message(F.text == "📁 Guruhlar")
 async def groups_cmd(message: types.Message, state: FSMContext):
     groups = await db.get_groups(message.from_user.id)
-    groups_list = "\n".join([f"• {g}" for g in groups]) if groups else "Hozircha guruhlar qo'shilmagan."
     
-    await message.answer(
-        f"📁 **Sizning guruhlaringiz:**\n{groups_list}\n\nYangi guruh ID yoki username'ini kiriting (masalan: `@guruh_nomi`):",
-        reply_markup=main_menu(),
-        parse_mode="Markdown"
-    )
+    builder = InlineKeyboardMarkup(inline_keyboard=[])
+    text = "📁 **Sizning guruhlaringiz:**\n\n"
+    
+    if groups:
+        for g in groups:
+            g_id, chat_id = g
+            text += f"• `{chat_id}`\n"
+            builder.inline_keyboard.append([InlineKeyboardButton(text=f"❌ O'chirish ({chat_id})", callback_data=f"del_group_{g_id}")])
+    else:
+        text += "Hozircha guruhlar yo'q.\n"
+        
+    builder.inline_keyboard.append([InlineKeyboardButton(text="➕ Yangi guruh qo'shish", callback_data="add_new_group")])
+    await message.answer(text, reply_markup=builder, parse_mode="Markdown")
+
+@dp.callback_query(F.data == "add_new_group")
+async def add_group_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Guruh ID yoki username'ini kiriting (masalan: `@guruh_nomi`):")
     await state.set_state(AuthState.waiting_for_group)
 
 @dp.message(AuthState.waiting_for_group)
 async def save_group(message: types.Message, state: FSMContext):
     await db.add_group(message.from_user.id, message.text)
-    await message.answer("✅ Guruh muvaffaqiyatli qo'shildi!", reply_markup=main_menu())
+    await message.answer("✅ Guruh saqlandi!", reply_markup=main_menu())
     await state.clear()
+
+@dp.callback_query(F.data.startswith("del_group_"))
+async def del_group_proc(callback: types.CallbackQuery):
+    g_id = int(callback.data.split("_")[2])
+    await db.delete_group(g_id)
+    await callback.answer("Guruh o'chirildi!", show_alert=True)
+    await groups_cmd(callback.message)
 
 # --- ▶️ ISHGA TUSHIRISH ---
 @dp.message(F.text == "▶️ Ishga tushirish")
 async def start_auto(message: types.Message):
-    await db.set_status(message.from_user.id, 1)
-    await message.answer("🚀 Avto-xabar yuborish jarayoni muvaffaqiyatli ishga tushirildi! Belgilangan intervalda xabarlar yuboriladi.")
+    accounts = await db.get_accounts(message.from_user.id)
+    if not accounts:
+        await message.answer("❌ Avval `👥 Profillar` bo'limidan Telegram akkauntingizni ulang!")
+        return
+    for acc in accounts:
+        await db.update_account_status(acc[0], 1)
+    await message.answer("🚀 Avto-xabar yuborish jarayoni barcha ulangan profillaringiz uchun ishga tushirildi!")
 
 # --- 📊 STATISTIKA ---
 @dp.message(F.text == "📊 Statistika")
@@ -217,30 +270,54 @@ async def stats_cmd(message: types.Message):
     await message.answer(
         f"📊 **Bot Statistikasi:**\n\n"
         f"👥 Jami foydalanuvchilar: {total}\n"
-        f"🚀 Faol avto-xabarlar: {active}\n"
-        f"📁 Ulangan guruhlar: {groups}",
+        f"🚀 Faol ulangan profillar: {active}\n"
+        f"📁 Saqlangan guruhlar: {groups}",
         parse_mode="Markdown"
     )
 
-# --- ⭐️ PRO ---
+# --- ⭐️ PRO STATUS ---
 @dp.message(F.text == "⭐️ Pro")
 async def pro_cmd(message: types.Message):
+    builder = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Pro sotib olish (10,000 so'm)", callback_data="buy_pro")]
+    ])
     await message.answer(
         "⭐️ **Pro Statusi**\n\n"
-        "Pro statusini faollashtirish orqali cheksiz guruhlarga xabar yuborish va tezkor interval imkoniyatiga ega bo'lasiz.\n\n"
-        "💳 Narxi: 10,000 so'm / oy\n"
-        "Bog'lanish uchun: @Admin",
+        "Pro bilan cheksiz guruh va tezkor interval funksiyalarini olasiz.\n"
+        "Balansingiz orqali to'lov qilishingiz mumkin.",
+        reply_markup=builder,
         parse_mode="Markdown"
     )
 
-# --- 🥷 SHAXSIY BOT ---
+@dp.callback_query(F.data == "buy_pro")
+async def buy_pro_proc(callback: types.CallbackQuery):
+    user = await db.get_user(callback.from_user.id)
+    balance = user[0] if user else 0
+    if balance >= 10000:
+        await db.activate_pro(callback.from_user.id)
+        await callback.answer("🎉 Pro statusi muvaffaqiyatli faollashtirildi!", show_alert=True)
+    else:
+        await callback.answer(f"❌ Balans yetarli emas. Sizda: {balance} so'm bor.", show_alert=True)
+
+# --- 🥷 SHAXSIY BOT YARATISH ---
 @dp.message(F.text == "🥷 Shaxsiy bot")
-async def personal_bot_cmd(message: types.Message):
+async def personal_bot_cmd(message: types.Message, state: FSMContext):
     await message.answer(
         "🥷 **Shaxsiy bot yaratish**\n\n"
-        "O'zingizning shaxsiy avto-xabar botingizni ochishni xohlaysizmi? @BotFather orqali bot ochib, uning TOKENini bizga yuboring va o'z loyihangiz egasiga aylaning!",
+        "O'zingizning xuddi shunday avto-xabar botingiz bo'lishini xohlasangiz, @BotFather'dan olingan Bot TOKENini yuboring:",
         parse_mode="Markdown"
     )
+    await state.set_state(AuthState.waiting_for_bot_token)
+
+@dp.message(AuthState.waiting_for_bot_token)
+async def save_bot_token(message: types.Message, state: FSMContext):
+    token = message.text.strip()
+    if ":" in token:
+        await db.save_custom_bot(message.from_user.id, token)
+        await message.answer("✅ Shaxsiy botingiz qabul qilindi! Tezzatda ishga tushiriladi.", reply_markup=main_menu())
+        await state.clear()
+    else:
+        await message.answer("❌ Noto'g'ri TOKEN kiritdingiz. Qaytadan kiriting:")
 
 # --- 👥 REFERAL DASTUR ---
 @dp.message(F.text == "👥 Referal dastur")
@@ -251,9 +328,9 @@ async def referral_cmd(message: types.Message):
     
     await message.answer(
         f"👥 **Referal dastur**\n\n"
-        f"Do'stlaringizni taklif qiling va mukofotlarga ega bo'ling!\n\n"
-        f"🔗 Sizning referal havolangiz:\n`{ref_link}`\n\n"
-        f"📊 Taklif qilgan do'stlaringiz soni: **{ref_count} ta**",
+        f"Har bir taklif qilgan do'stingiz uchun **500 so'm** balans olasiz!\n\n"
+        f"🔗 Sizning havolangiz:\n`{ref_link}`\n\n"
+        f"📊 Taklif qilinganlar: **{ref_count} ta**",
         parse_mode="Markdown"
     )
 
@@ -261,32 +338,29 @@ async def referral_cmd(message: types.Message):
 @dp.message(F.text == "👤 Profil")
 async def profile_cmd(message: types.Message):
     user = await db.get_user(message.from_user.id)
+    accounts = await db.get_accounts(message.from_user.id)
+    
     if user:
-        _, _, interval, active, phone, is_pro, balance = user
-        status = "Faol 🟢" if active == 1 else "To'xtatilgan 🔴"
-        phone_txt = phone if phone else "Bog'lanmagan ❌"
-        daraja = "Pro ⭐️" if is_pro == 1 else "Oddiy 👤"
+        balance, is_pro, expire, _ = user
+        pro_txt = "⭐️ Pro" if is_pro == 1 else "👤 Oddiy"
         
         await message.answer(
             f"👤 **Sizning profilingiz:**\n\n"
-            f"📞 Telefon: `{phone_txt}`\n"
-            f"⚡️ Holati: {status}\n"
-            f"⏱ Interval: {interval} daqiqa\n"
-            f"⭐️ Daraja: {daraja}\n"
-            f"💰 Balans: {balance} so'm",
+            f"🆔 ID: `{message.from_user.id}`\n"
+            f"💰 Balans: {balance} so'm\n"
+            f"⭐ Daraja: {pro_txt}\n"
+            f"📱 Ulangan profillar soni: {len(accounts)} ta",
             parse_mode="Markdown"
         )
-    else:
-        await message.answer("Profil ma'lumotlari topilmadi. /start buyrug'ini bosing.")
 
 # --- ⚙️ SOZLAMALAR ---
 @dp.message(F.text == "⚙️ Sozlamalar")
 async def settings_cmd(message: types.Message):
     await message.answer(
-        "⚙️ **Sozlamalar bo'limi**\n\n"
-        "Bu yerdan akkauntingizni o'chirishingiz yoki bot tilini o'zgartirishingiz mumkin.",
-        reply_markup=main_menu(),
-        parse_mode="Markdown"
+        "⚙️ **Sozlamalar:**\n\n"
+        "Bot tili: O'zbekcha 🇺🇿\n"
+        "Xabarnomalar: Yoqilgan 🔔",
+        reply_markup=main_menu()
     )
 
 async def main():
@@ -301,4 +375,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
+            
